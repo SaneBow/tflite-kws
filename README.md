@@ -1,10 +1,11 @@
 # TFLiteKWS
 
-Keyword Spotting (KWS) API for TFLite streaming models.
+Keyword Spotting (KWS) API wrapper for TFLite streaming models.
 
 ## Model
 
-You need to train your own model. One open source streaming KWS model in tensorflow is the [kws_streaming](https://github.com/google-research/google-research/tree/master/kws_streaming) by Google Research. You can refer to [g-kws](https://github.com/StuartIanNaylor/g-kws) as a nice setup guide, and use [Dataset-builder](https://github.com/StuartIanNaylor/Dataset-builder) to prepare your own dataset.
+This project is only a API wrapper to assist audio processing with tflite models. Models are not provided here.
+You need to find a pretrained model or train your own. One open source streaming KWS model in tensorflow is the [kws_streaming](https://github.com/google-research/google-research/tree/master/kws_streaming) by Google Research. You can refer to [g-kws](https://github.com/StuartIanNaylor/g-kws) as a nice setup guide, and use [Dataset-builder](https://github.com/StuartIanNaylor/Dataset-builder) to prepare your own dataset.
 
 ## Testing
 
