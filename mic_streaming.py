@@ -43,7 +43,7 @@ parser.add_argument(
     '-r', '--sample-rate', type=int, default=16000,
     help='input sample rate')
 parser.add_argument(
-    '-l', '--block-len-ms', type=int, default=20,
+    '-b', '--block-len-ms', type=int, default=20,
     help='input block (window stride) length (ms)')
 parser.add_argument(
     '--measure', action='store_true',
