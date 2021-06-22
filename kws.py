@@ -22,7 +22,7 @@ NOT_KW = 1
 IS_KW = 2
 
 class TFLiteKWS(object):
-    def __init__(self, model_path, labels, sensitivity=5.0, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=False, headroom_ms=40):
+    def __init__(self, model_path, labels, win_smooth=30, win_max=100, add_softmax=True, sensitivity=0.8, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=False, headroom_ms=40):
         """ 
         TensorFlow Lite KWS model processor class
 
@@ -38,6 +38,9 @@ class TFLiteKWS(object):
         self.logger = logging.getLogger(self.__class__.__name__)
 
         self.labels = labels
+        self.win_smooth = win_smooth
+        self.win_max = win_max
+        self.add_softmax = add_softmax
         self.sensitivity = sensitivity
         self.headroom_ms = headroom_ms
         assert tailroom_ms > 2 * block_ms, "tailroom cannot be too small"
@@ -56,6 +59,8 @@ class TFLiteKWS(object):
 
         ring_len = int(4000 / block_ms)     # 4000 ms of records
         self.ring = collections.deque([SILENCE]*ring_len, maxlen=ring_len)  # initialize with SILENCE
+        self.smooth_window = collections.deque(maxlen=win_smooth)
+        self.score_window = collections.deque(maxlen=win_max)
 
         # init interpreter
         self.interpreter = tflite.Interpreter(model_path=model_path)
@@ -98,14 +103,41 @@ class TFLiteKWS(object):
         # get the output of the first block
         out = self.interpreter.get_tensor(self.output_details[0]['index'])
         scores = out[0]
+        if self.add_softmax:
+            scores = self._softmax(scores)
 
         # get output states and set it back to input states
         for s in range(1, len(self.input_details)):
             self.input_states[s] = self.interpreter.get_tensor(self.output_details[s]['index'])
 
-        kw = self._any_kw_hit(scores)
-        self._debug(scores)
+        # kw = self._any_kw_hit(scores)
+        # self._debug(scores)
+        label, confidence = self._confidence_score(scores)
+        self.logger.info("{}: {:.2f}".format(label, confidence))
+        if label not in [SILENCE, NOT_KW] and confidence > self.sensitivity:
+            kw = label
+        else:
+            kw = None
         return kw
+
+    def _softmax(self, x):
+        f_x = np.exp(x) / np.sum(np.exp(x))
+        return f_x
+
+    def _confidence_score(self, scores):
+        # label at current frame
+        label = self.labels[np.argmax(scores)]
+        kw_idx = [i for i, l in enumerate(self.labels) if l not in [SILENCE, NOT_KW]]
+        # discard non-kw scores
+        scores = [s for i, s in enumerate(scores) if i in kw_idx]
+        self.smooth_window.append(scores)
+        # smoothed posterior of output probability at current frame
+        pp = np.mean(self.smooth_window, axis=0)
+        self.score_window.append(pp)
+        # confidence score
+        confidence = np.power(
+            np.prod(np.max(self.score_window, axis=0)), 1./len(scores))
+        return label, confidence
 
     def _reset_states(self):
         self._utterance_blocks = 0
