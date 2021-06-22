@@ -7,9 +7,6 @@ import numpy as np
 import logging
 from kws import TFLiteKWS, SILENCE, NOT_KW
 
-logging.basicConfig()
-logging.getLogger().setLevel(logging.DEBUG)
-
 
 def int_or_str(text):
     """Helper function for argument parsing."""
@@ -38,7 +35,7 @@ parser.add_argument(
     help='input device (numeric ID or substring)')
 parser.add_argument(
     '-c', '--channel', type=int, default=None,
-    help='use specific channel of input device')
+    help='specify the channel index of input device (start from 0)')
 parser.add_argument(
     '-r', '--sample-rate', type=int, default=16000,
     help='input sample rate')
@@ -48,8 +45,19 @@ parser.add_argument(
 parser.add_argument(
     '--measure', action='store_true',
     help='measure and report processing time')
+parser.add_argument(
+    '-v', '--verbose', type=int, default=1,
+    help='verbose level: 0 - quiet, 1 - info, 2 - debug'
+)
 
 args = parser.parse_args(remaining)
+
+if args.verbose > 0:
+    logging.basicConfig(format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    if args.verbose == 1:
+        logging.getLogger().setLevel(logging.INFO)
+    if args.verbose == 2:
+        logging.getLogger().setLevel(logging.DEBUG)
 
 
 gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'])

@@ -22,7 +22,7 @@ NOT_KW = 1
 IS_KW = 2
 
 class TFLiteKWS(object):
-    def __init__(self, model_path, labels, sensitivity=5.0, tailroom_ms=400, headroom_ms=40, min_kw_ms=100, block_ms=20):
+    def __init__(self, model_path, labels, sensitivity=5.0, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=False, headroom_ms=40):
         """ 
         TensorFlow Lite KWS model processor class
 
@@ -30,9 +30,10 @@ class TFLiteKWS(object):
         :param labels: classification labels, exmaple: [SILENCE, NOT_KW, 'keyword1', 'keyword2']
         :param sensitivity: score threshold of kw hit for each block
         :param tailroom_ms: utterance end after how long of silence (default 400 ms)
-        :param headroom_ms: required silence before start of kw (default 100 ms), can be set to 0
         :param min_kw_ms: minimum kw duration (default 100 ms)
         :param block_ms: block duration (default 20 ms), must match the model
+        :param silence_off: treat SILENCE as NOT_KW, turn silence detection off
+        :param headroom_ms: required silence before start of kw (default 100 ms), only effective when SILENCE label presents and silence_off=False
         """
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -43,6 +44,9 @@ class TFLiteKWS(object):
         self.tailroom_ms = tailroom_ms
         self.min_kw_ms = min_kw_ms
         self.block_ms = 20
+        if SILENCE not in self.labels:
+            silence_off = True  # set silence_off flag when SILENCE not present in labels
+        self.silence_off = silence_off
 
         self._utterance_blocks = 0  # total of blocks in an utterance
         keywords = [kw for kw in self.labels if kw not in [SILENCE, NOT_KW]]
@@ -100,6 +104,7 @@ class TFLiteKWS(object):
             self.input_states[s] = self.interpreter.get_tensor(self.output_details[s]['index'])
 
         kw = self._any_kw_hit(scores)
+        self._debug(scores)
         return kw
 
     def _reset_states(self):
@@ -111,6 +116,12 @@ class TFLiteKWS(object):
         self.logger.debug("%s\t%s\t%s\ttot=%s",
             '|'.join(map(lambda s: '{:6.2f}'.format(s), preds)), 
             self._utterance_hits, list(self.ring)[-10:], self._utterance_blocks)
+
+    def _end_cond(self, v):
+        if not self.silence_off:
+            return v == SILENCE     # kw in sentence not accepted
+        else:
+            return v in [SILENCE, NOT_KW]   # accept kw in sentence
 
     def _any_kw_hit(self, scores):
         label = self.labels[np.argmax(scores)]        
@@ -124,13 +135,13 @@ class TFLiteKWS(object):
             if label in [SILENCE, NOT_KW]:
                 return None
             else:   # IS_KW
-                head = lring[-1 - self._head_threshold : -1]
-                if len(head) > 0 and not all(v==SILENCE for v in head):
-                    return None     # ignore kw prefixed by !kw if haven't enter utterance state
+                if not self.silence_off:
+                    head = lring[-1 - self._head_threshold : -1]
+                    if len(head) > 0 and not all(v==SILENCE for v in head):
+                        return None     # ignore kw prefixed by !kw if haven't enter utterance state
 
         # below only run in utterance state
         self._utterance_blocks += 1
-        self._debug(scores)
 
         # label is kw
         if lring[-1] == IS_KW:   
@@ -139,15 +150,15 @@ class TFLiteKWS(object):
             return None
 
         # end of utterance
-        if all(v==SILENCE for v in lring[-self._tail_threshold:]):   
+        if all(self._end_cond(v) for v in lring[-self._tail_threshold:]):   
             trimed_utter_blocks = self._utterance_blocks - self._tail_threshold
             utterance_ms = trimed_utter_blocks * self.block_ms
             hits = self._utterance_hits
             kw = max(hits, key=hits.get)
             hit_ratio = hits[kw] / trimed_utter_blocks
-            self.logger.debug("End of utterance, duration: %s ms, hit_ratio: %.2f", utterance_ms, hit_ratio)
+            self.logger.info("End of utterance, duration: %s ms, hit_ratio: %.2f", utterance_ms, hit_ratio)
             if utterance_ms > self.min_kw_ms and hit_ratio > 0.3:
-                self.logger.debug("[!] Hit keyword: [%s]", kw)
+                self.logger.info('[!] Hit keyword: "%s"', kw)
             else:
                 kw = None   # not enough kw hits, discard it
             self._reset_states()
