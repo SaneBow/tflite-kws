@@ -89,7 +89,7 @@ class TFLiteKWS(object):
         :returns: keword string when hit or None when not hit
         """
         if raw:
-            indata = np.array(pcm)
+            indata = np.array(pcm) / 32768
         else:
             indata = pcm
 
