@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-API wrapper for realtime streaming keyword spotting with trained TFLite models. 
+API wrapper for realtime streaming keyword spotting with trained TFLite models.
 
 Author: sanebow (sanebow@gmail.com)
 Version: 29.05.2021
@@ -11,7 +11,7 @@ This code is licensed under the terms of the MIT-license.
 
 import numpy as np
 # tflite_runtime may not work, e.g., models with flex delegates
-# import tflite_runtime.interpreter as tflite 
+# import tflite_runtime.interpreter as tflite
 import tensorflow.lite as tflite
 import collections
 import logging
@@ -23,7 +23,7 @@ IS_KW = 2
 
 class TFLiteKWS(object):
     def __init__(self, model_path, labels, score_strategy='posterior', add_softmax=True, score_threshold=0.4, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=False, headroom_ms=40):
-        """ 
+        """
         TensorFlow Lite KWS model processor class
 
         :param model_path: path of .tflite model file
@@ -31,7 +31,7 @@ class TFLiteKWS(object):
         :param add_softmax: whether add softmax layer to output
         :param score_strategy: can be one of the following,
             'posterior': the score smoothing method used in Google DDN paper (default)
-            'hit_ratio': count frame scores over threshold and 
+            'hit_ratio': count frame scores over threshold and
         :param score_threshold: score threshold of kw hit for each block, or threshold for posterior confidence
         :param tailroom_ms: utterance end after how long of silence (default 100 ms)
         :param min_kw_ms: minimum kw duration (default 100 ms)
@@ -75,7 +75,7 @@ class TFLiteKWS(object):
         if len(self.input_details) != len(self.output_details):
             raise ValueError('Number of inputs should be equal to the number of outputs'
                              'for the case of streaming model with external state')
-        # init states 
+        # init states
         self.input_states = []
         for s in range(len(self.input_details)):
             self.input_states.append(np.zeros(self.input_details[s]['shape'], dtype=np.float32))
@@ -96,12 +96,12 @@ class TFLiteKWS(object):
         # set input audio data (by default input data at index 0)
         indata = np.reshape(indata, (1, -1)).astype('float32')
         self.interpreter.set_tensor(self.input_details[0]['index'], indata)
-        
+
         # set input states (index 1...)
         for s in range(1, len(self.input_details)):
             self.interpreter.set_tensor(self.input_details[s]['index'], self.input_states[s])
 
-        # run calculation 
+        # run calculation
         self.interpreter.invoke()
 
         # get the output of the first block
@@ -116,7 +116,7 @@ class TFLiteKWS(object):
 
         kw = self._any_kw_hit(scores)
         # self._debug(scores)
-    
+
         return kw
 
     def _softmax(self, x):
@@ -143,7 +143,7 @@ class TFLiteKWS(object):
 
     def _debug(self, preds):
         self.logger.debug("%s\t%s\t%s\ttot=%s",
-            '|'.join(map(lambda s: '{:6.2f}'.format(s), preds)), 
+            '|'.join(map(lambda s: '{:6.2f}'.format(s), preds)),
             self._utterance_scores, list(self.label_ring)[-10:], self._utterance_blocks)
 
     def _end_cond(self, v):
@@ -153,7 +153,7 @@ class TFLiteKWS(object):
             return v in [SILENCE, NOT_KW]   # accept kw in sentence
 
     def _any_kw_hit(self, scores):
-        label = self.labels[np.argmax(scores)]        
+        label = self.labels[np.argmax(scores)]
         ilabel = label if label in [SILENCE, NOT_KW] else IS_KW  # all kw -> IS_KW
         self.label_ring.append(ilabel)
         lring = list(self.label_ring)
@@ -163,7 +163,7 @@ class TFLiteKWS(object):
         elif self.score_strategy == 'hit_ratio':
             score = max(scores)
             self.logger.debug("%s\t%s\t%s\ttot=%s",
-                '|'.join(map(lambda s: '{:6.2f}'.format(s), scores)), 
+                '|'.join(map(lambda s: '{:6.2f}'.format(s), scores)),
                 self._utterance_scores, list(self.label_ring)[-10:], self._utterance_blocks)
 
         kw = None
@@ -181,7 +181,7 @@ class TFLiteKWS(object):
         self._utterance_blocks += 1
 
         # label is kw
-        if lring[-1] == IS_KW and score > self.score_threshold:   
+        if lring[-1] == IS_KW and score > self.score_threshold:
             if self.score_strategy == 'posterior':
                 self._utterance_scores[label] = score   # update kw score to latest posterior
             elif self.score_strategy == 'hit_ratio':
@@ -189,7 +189,7 @@ class TFLiteKWS(object):
             return None
 
         # end of utterance
-        if all(self._end_cond(v) for v in lring[-self._tail_threshold:]):   
+        if all(self._end_cond(v) for v in lring[-self._tail_threshold:]):
             trimed_utter_blocks = self._utterance_blocks - self._tail_threshold
             utterance_ms = trimed_utter_blocks * self.block_ms
             if utterance_ms > self.min_kw_ms:

@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter,
     parents=[parser])
 parser.add_argument(
-    '-m', '--model', type=str,
+    '-m', '--model', type=str, required=True,
     help='tflite model')
 parser.add_argument(
     '-i', '--input-device', type=int_or_str,
@@ -42,6 +42,12 @@ parser.add_argument(
 parser.add_argument(
     '-b', '--block-len-ms', type=int, default=20,
     help='input block (window stride) length (ms)')
+parser.add_argument(
+    '--score-strategy', choices=['posterior', 'hit_ratio'], default='posterior',
+    help='score strategy, choose between "posterior" (default) or "hit_ratio"'),
+parser.add_argument(
+    '--no-softmax', action='store_true',
+    help='add softmax layer to output')  
 parser.add_argument(
     '--measure', action='store_true',
     help='measure and report processing time')
@@ -60,7 +66,7 @@ if args.verbose > 0:
         logging.getLogger().setLevel(logging.DEBUG)
 
 
-gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'])
+gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'], add_softmax=not args.no_softmax, score_strategy=args.score_strategy)
 
 t_ring = collections.deque(maxlen=128)
 
