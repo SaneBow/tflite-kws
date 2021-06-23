@@ -22,7 +22,7 @@ NOT_KW = 1
 IS_KW = 2
 
 class TFLiteKWS(object):
-    def __init__(self, model_path, labels, score_strategy='posterior', add_softmax=True, score_threshold=0.4, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=False, headroom_ms=40):
+    def __init__(self, model_path, labels, score_strategy='posterior', add_softmax=True, score_threshold=0.6, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=False, headroom_ms=40):
         """
         TensorFlow Lite KWS model processor class
 
