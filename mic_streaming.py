@@ -47,7 +47,7 @@ parser.add_argument(
     help='score strategy, choose between "posterior" (default) or "hit_ratio"'),
 parser.add_argument(
     '--no-softmax', action='store_true',
-    help='add softmax layer to output')  
+    help='do not add softmax layer to output')  
 parser.add_argument(
     '--measure', action='store_true',
     help='measure and report processing time')

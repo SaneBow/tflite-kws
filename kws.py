@@ -22,7 +22,7 @@ NOT_KW = 1
 IS_KW = 2
 
 class TFLiteKWS(object):
-    def __init__(self, model_path, labels, score_strategy='posterior', add_softmax=True, score_threshold=0.6, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=False, headroom_ms=40):
+    def __init__(self, model_path, labels, score_strategy='posterior', add_softmax=True, score_threshold=0.8, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=True, headroom_ms=40):
         """
         TensorFlow Lite KWS model processor class
 
@@ -109,13 +109,13 @@ class TFLiteKWS(object):
         scores = out[0]
         if self.add_softmax:
             scores = self._softmax(scores)
+        # self._debug(scores)
 
         # get output states and set it back to input states
         for s in range(1, len(self.input_details)):
             self.input_states[s] = self.interpreter.get_tensor(self.output_details[s]['index'])
 
         kw = self._any_kw_hit(scores)
-        # self._debug(scores)
 
         return kw
 
