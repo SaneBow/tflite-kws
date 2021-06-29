@@ -43,11 +43,14 @@ parser.add_argument(
     '-b', '--block-len-ms', type=int, default=20,
     help='input block (window stride) length (ms)')
 parser.add_argument(
-    '--score-strategy', choices=['posterior', 'hit_ratio'], default='posterior',
-    help='score strategy, choose between "posterior" (default) or "hit_ratio"'),
+    '--score-strategy', choices=['smoothed_confidence', 'hit_ratio'], default='smoothed_confidence',
+    help='score strategy, choose between "smoothed_confidence" (default) or "hit_ratio"'),
 parser.add_argument(
     '--no-softmax', action='store_true',
-    help='do not add softmax layer to output')  
+    help='do not add softmax layer to output')
+parser.add_argument(
+    '--silence-on', action='store_true',
+    help='turn on silence detection')
 parser.add_argument(
     '--measure', action='store_true',
     help='measure and report processing time')
@@ -66,7 +69,7 @@ if args.verbose > 0:
         logging.getLogger().setLevel(logging.DEBUG)
 
 
-gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'], add_softmax=not args.no_softmax, score_strategy=args.score_strategy)
+gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'], add_softmax=not args.no_softmax, score_strategy=args.score_strategy, silence_off=not args.silence_on)
 
 t_ring = collections.deque(maxlen=128)
 
@@ -78,19 +81,19 @@ def callback(indata, frames, buf_time, status):
     if status:
         logging.warning(status)
     if args.channel is not None:
-        indata = indata[:, [args.channel]] 
+        indata = indata[:, [args.channel]]
 
     gkws.process(indata)
 
     if args.measure:
         t_ring.append(time.time() - start_time)
-    
+
 
 def open_stream():
     block_shift = int(np.round(args.sample_rate * (args.block_len_ms / 1000)))
-    with sd.InputStream(device=args.input_device, samplerate=args.sample_rate, 
+    with sd.InputStream(device=args.input_device, samplerate=args.sample_rate,
                 blocksize=block_shift,
-                dtype=np.float32, channels=1 if args.channel is None else None, 
+                dtype=np.float32, channels=1 if args.channel is None else None,
                 callback=callback):
         print('#' * 80)
         print('Ctrl-C to exit')
@@ -109,4 +112,4 @@ except KeyboardInterrupt:
     parser.exit('')
 except Exception as e:
     parser.exit(type(e).__name__ + ': ' + str(e))
-    
+

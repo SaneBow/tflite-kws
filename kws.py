@@ -22,7 +22,7 @@ NOT_KW = 1
 IS_KW = 2
 
 class TFLiteKWS(object):
-    def __init__(self, model_path, labels, score_strategy='posterior', add_softmax=True, score_threshold=0.8, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=True, headroom_ms=40):
+    def __init__(self, model_path, labels, score_strategy='smoothed_confidence', add_softmax=True, score_threshold=0.8, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=True, headroom_ms=40):
         """
         TensorFlow Lite KWS model processor class
 
@@ -30,9 +30,9 @@ class TFLiteKWS(object):
         :param labels: classification labels, exmaple: [SILENCE, NOT_KW, 'keyword1', 'keyword2']
         :param add_softmax: whether add softmax layer to output
         :param score_strategy: can be one of the following,
-            'posterior': the score smoothing method used in Google DDN paper (default)
+            'smoothed_confidence': the score smoothing method used in Google DDN paper (default)
             'hit_ratio': count frame scores over threshold and
-        :param score_threshold: score threshold of kw hit for each block, or threshold for posterior confidence
+        :param score_threshold: score threshold of kw hit for each block, or threshold for smoothed confidence
         :param tailroom_ms: utterance end after how long of silence (default 100 ms)
         :param min_kw_ms: minimum kw duration (default 100 ms)
         :param block_ms: block duration (default 20 ms), must match the model
@@ -42,7 +42,7 @@ class TFLiteKWS(object):
         self.logger = logging.getLogger(self.__class__.__name__)
 
         self.labels = labels
-        assert score_strategy in ['posterior', 'hit_ratio'], "unknown score strategy"
+        assert score_strategy in ['smoothed_confidence', 'hit_ratio'], "unknown score strategy"
         self.score_strategy = score_strategy
         self.add_softmax = add_softmax
         self.score_threshold = score_threshold
@@ -157,7 +157,7 @@ class TFLiteKWS(object):
         ilabel = label if label in [SILENCE, NOT_KW] else IS_KW  # all kw -> IS_KW
         self.label_ring.append(ilabel)
         lring = list(self.label_ring)
-        if self.score_strategy == 'posterior':
+        if self.score_strategy == 'smoothed_confidence':
             score = self._confidence_score(scores)
             self.logger.debug("{}: {:.2f}".format(label, score))
         elif self.score_strategy == 'hit_ratio':
@@ -181,10 +181,10 @@ class TFLiteKWS(object):
         self._utterance_blocks += 1
 
         # label is kw
-        if lring[-1] == IS_KW and score > self.score_threshold:
-            if self.score_strategy == 'posterior':
+        if lring[-1] == IS_KW:
+            if self.score_strategy == 'smoothed_confidence':
                 self._utterance_scores[label] = score   # update kw score to latest posterior
-            elif self.score_strategy == 'hit_ratio':
+            elif self.score_strategy == 'hit_ratio' and score > self.score_threshold:
                 self._utterance_scores[label] += 1
             return None
 
@@ -195,7 +195,7 @@ class TFLiteKWS(object):
             if utterance_ms > self.min_kw_ms:
                 kw_ranks = self._utterance_scores
                 kw = max(kw_ranks, key=kw_ranks.get)
-                if self.score_strategy == 'posterior':
+                if self.score_strategy == 'smoothed_confidence':
                     confidence = kw_ranks[kw]
                     self.logger.info("End of utterance, duration: %s ms, confidence: %.2f", utterance_ms, confidence)
                     if not confidence > self.score_threshold:
