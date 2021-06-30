@@ -43,8 +43,12 @@ parser.add_argument(
     '-b', '--block-len-ms', type=int, default=20,
     help='input block (window stride) length (ms)')
 parser.add_argument(
-    '--score-strategy', choices=['smoothed_confidence', 'hit_ratio'], default='smoothed_confidence',
+    '-s', '--score-strategy', choices=['smoothed_confidence', 'hit_ratio'], default='smoothed_confidence',
     help='score strategy, choose between "smoothed_confidence" (default) or "hit_ratio"'),
+parser.add_argument(
+    '-t', '--threshold', type=float,
+    help='score threshold, if not specified, this is automatically determined by strategy and softmax options'
+)
 parser.add_argument(
     '--no-softmax', action='store_true',
     help='do not add softmax layer to output')
@@ -68,8 +72,17 @@ if args.verbose > 0:
     if args.verbose == 2:
         logging.getLogger().setLevel(logging.DEBUG)
 
+if not args.threshold:
+    if args.score_strategy == 'hit_ratio':
+        threshold = 0.99
+    else:
+        threshold = 0.8
+else:
+    threshold = args.threshold
 
-gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'], add_softmax=not args.no_softmax, score_strategy=args.score_strategy, silence_off=not args.silence_on)
+
+gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'], add_softmax=not args.no_softmax, silence_off=not args.silence_on,
+    score_strategy=args.score_strategy, score_threshold=threshold)
 
 t_ring = collections.deque(maxlen=128)
 
