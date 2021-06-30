@@ -213,10 +213,9 @@ class TFLiteKWS(object):
         if self._met_end_cond():
             utter_blocks = self._utterance_blocks - self._tail_threshold
             utterance_ms = utter_blocks * self.block_ms
-            if utterance_ms > self.min_kw_ms:
-                kwranks = self._utterance_scores
-                kw = max(kwranks, key=kwranks.get)
-            else:
+            kwranks = self._utterance_scores
+            kw = max(kwranks, key=kwranks.get)
+            if utterance_ms < self.min_kw_ms:
                 self.logger.info("End of utterance: %s, duration: %s ms, too short!", kw, utterance_ms)
                 self._reset_states()
                 return None
