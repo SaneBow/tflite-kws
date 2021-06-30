@@ -16,6 +16,9 @@ import tensorflow.lite as tflite
 import collections
 import logging
 
+VERBOSE = 5
+logging.addLevelName(5,"VERBOSE")
+
 
 SILENCE = 0
 NOT_KW = 1
@@ -182,10 +185,10 @@ class TFLiteKWS(object):
         lring = list(self.label_ring)
         if self.score_strategy == 'smoothed_confidence':
             score = self._confidence_score(scores)
-            self.logger.debug("{}: {:.2f}".format(label, score))
+            self.logger.log(VERBOSE, "{}: {:.2f}".format(label, score))
         elif self.score_strategy == 'hit_ratio':
             score = max(scores)
-            self.logger.debug("%s\tlabel=%s\t%s\ttot=%s",
+            self.logger.log(VERBOSE, "%s\tlabel=%s\t%s\ttot=%s",
                 '|'.join(map(lambda s: '{:6.2f}'.format(s), scores)),
                 label, self._utterance_scores, self._utterance_blocks)
 
@@ -216,20 +219,21 @@ class TFLiteKWS(object):
             kwranks = self._utterance_scores
             kw = max(kwranks, key=kwranks.get)
             if utterance_ms < self.min_kw_ms:
-                self.logger.info("End of utterance: %s, duration: %s ms, too short!", kw, utterance_ms)
+                self.logger.debug("End of utterance: %s, duration: %s ms, too short!", kw, utterance_ms)
                 self._reset_states()
                 return None
             
             if self.score_strategy == 'hit_ratio':
                 hit_ratio = kwranks[kw] / utter_blocks
-                self.logger.info("End of utterance: %s, duration: %s ms, hit_ratio: %.2f", kw, utterance_ms, hit_ratio)
+                self.logger.debug("End of utterance: %s, duration: %s ms, hit_ratio: %.2f", kw, utterance_ms, hit_ratio)
                 if not hit_ratio > self.score_threshold:  # hard code this, only leave sensitivity as the hyperparameter
                     kw = None   # low hit ratio, discard it
                     
             if self.score_strategy == 'smoothed_confidence':
+                confidence = kwranks[kw]
+                self.logger.debug("End of utterance: %s, duration: %s ms, confidence: %.2f", kw, utterance_ms, confidence)
                 if len(self._already_triggered) == 1:
-                    confidence = kwranks[kw]
-                    self.logger.info("End of utterance: %s, duration: %s ms, confidence: %.2f", kw, utterance_ms, confidence)
+                    kw = self._already_triggered[0]
                 elif len(self._already_triggered) > 1:
                     raise NotImplementedError("multiple kw in one utterance not implemented yet")
                 else:

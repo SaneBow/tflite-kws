@@ -5,7 +5,7 @@ import collections
 import sounddevice as sd
 import numpy as np
 import logging
-from kws import TFLiteKWS, SILENCE, NOT_KW
+from kws import TFLiteKWS, SILENCE, NOT_KW, VERBOSE
 
 
 def int_or_str(text):
@@ -60,7 +60,7 @@ parser.add_argument(
     help='measure and report processing time')
 parser.add_argument(
     '-v', '--verbose', type=int, default=1,
-    help='verbose level: 0 - quiet, 1 - info, 2 - debug'
+    help='verbose level: 0 - quiet, 1 - info, 2 - debug, 3 - verbose'
 )
 
 args = parser.parse_args(remaining)
@@ -71,6 +71,8 @@ if args.verbose > 0:
         logging.getLogger().setLevel(logging.INFO)
     if args.verbose == 2:
         logging.getLogger().setLevel(logging.DEBUG)
+    if args.verbose == 3:
+        logging.getLogger().setLevel(VERBOSE)
 
 if not args.threshold:
     if args.score_strategy == 'hit_ratio':
