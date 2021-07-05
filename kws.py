@@ -201,7 +201,7 @@ class TFLiteKWS(object):
 
         # label is kw, record score
         if lring[-1] == IS_KW:
-            if self.score_strategy == 'hit_ratio' and score > self.score_threshold:
+            if self.score_strategy == 'hit_ratio' and score > self.hit_threshold:
                 self._utterance_scores[label] += 1
             if self.score_strategy == 'smoothed_confidence':
                 self._utterance_scores[label] = score   # update to latest confidence
