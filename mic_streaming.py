@@ -107,7 +107,9 @@ def callback(indata, frames, buf_time, status):
     if args.channel is not None:
         indata = indata[:, [args.channel]]
 
-    gkws.process(indata)
+    kw, info = gkws.process(indata)
+    if len(kw) > 0:
+        logging.info("API returned: %s", kw)
 
     if args.measure:
         t_ring.append(time.time() - start_time)

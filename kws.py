@@ -257,7 +257,7 @@ class TFLiteKWS(object):
 
             self._reset_states()
 
-        if kw:
+        if len(kw):
             self.logger.info('[!] Return keywords after utterance end: "%s"', kw)
 
         return kw, info
