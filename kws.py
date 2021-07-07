@@ -22,10 +22,11 @@ logging.addLevelName(5,"VERBOSE")
 
 SILENCE = 0
 NOT_KW = 1
-IS_KW = 2
 
 class TFLiteKWS(object):
-    def __init__(self, model_path, labels, score_strategy='smoothed_confidence', add_softmax=True, score_threshold=0.8, hit_threshold=0.99, tailroom_ms=100, min_kw_ms=100, block_ms=20, silence_off=True, headroom_ms=40):
+    def __init__(self, model_path, labels, score_strategy='hit_ratio', add_softmax=False, 
+        score_threshold=0.01, hit_threshold=7, tailroom_ms=100, min_kw_ms=100, block_ms=20, 
+        silence_off=True, headroom_ms=40, immediate_trigger=True, max_kw_cnt=1):
         """
         TensorFlow Lite KWS model processor class
 
@@ -42,6 +43,8 @@ class TFLiteKWS(object):
         :param block_ms: block duration (default 20 ms), must match the model
         :param silence_off: treat SILENCE as NOT_KW, turn silence detection off
         :param headroom_ms: required silence before start of kw (default 40 ms), only effective when SILENCE label presents and silence_off=False
+        :param immediate_trigger: trigger immediately once score reach threshold, don't wait for utterance end
+        :param max_kw_cnt: max keyword in one utterance
         """
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -59,18 +62,21 @@ class TFLiteKWS(object):
         if SILENCE not in self.labels:
             silence_off = True  # set silence_off flag when SILENCE not present in labels
         self.silence_off = silence_off
+        self.immediate_trigger = immediate_trigger
+        self.max_kw_cnt = max_kw_cnt
 
         self._utterance_blocks = 0  # total of blocks in an utterance
         keywords = [kw for kw in self.labels if kw not in [SILENCE, NOT_KW]]
-        self._utterance_scores = {k:0 for k in keywords}  # total kw frame hit count map in one utterance
+        self._utterance_scores = {k:0 for k in keywords} 
+        self._utterance_hits = {k:0 for k in keywords}
         self._tail_threshold = int(tailroom_ms / self.block_ms)
         self._head_threshold = int(headroom_ms / self.block_ms)
         self._already_triggered = []
 
         ring_len = int(4000 / block_ms)     # 4s of records
         self.label_ring = collections.deque([SILENCE]*ring_len, maxlen=ring_len)  # initialize with SILENCE
-        self.smooth_window = collections.deque(maxlen=30)   # win_smooth = 30
-        self.score_window = collections.deque(maxlen=100)   # win_max = 100 (follow Google DNN paper)
+        self.smooth_window = collections.deque([[0.0]*len(keywords)]*30, maxlen=30)   # win_smooth = 30
+        self.score_window = collections.deque([[0.0]*len(keywords)]* 100, maxlen=100)   # win_max = 100 (follow Google DNN paper)
 
         # init interpreter
         self.interpreter = tflite.Interpreter(model_path=model_path)
@@ -115,7 +121,6 @@ class TFLiteKWS(object):
         scores = out[0]
         if self.add_softmax:
             scores = self._softmax(scores)
-        # self._debug(scores)
 
         # get output states and set it back to input states
         for s in range(1, len(self.input_details)):
@@ -128,6 +133,19 @@ class TFLiteKWS(object):
     def _softmax(self, x):
         f_x = np.exp(x) / np.sum(np.exp(x))
         return f_x
+
+    def _is_kw(self, label):
+        return label not in [SILENCE, NOT_KW]
+
+    def _last_kw_ms(self):
+        lring = list(self.label_ring)
+        ll = lring[-1]
+        cnt = 0
+        for l in lring[::-1]:
+            if l == ll:
+                cnt += 1
+            else:
+                return cnt * self.block_ms
 
     def _confidence_score(self, scores):
         kw_idx = [i for i, l in enumerate(self.labels) if l not in [SILENCE, NOT_KW]]
@@ -146,20 +164,18 @@ class TFLiteKWS(object):
         self._utterance_blocks = 0
         for k in self._utterance_scores:
             self._utterance_scores[k] = 0
+            self._utterance_hits[k] = 0
         self._already_triggered = []
-
-    def _debug(self, preds):
-        self.logger.debug("%s\t%s\t%s\ttot=%s",
-            '|'.join(map(lambda s: '{:6.2f}'.format(s), preds)),
-            self._utterance_scores, list(self.label_ring)[-10:], self._utterance_blocks)
+        self.smooth_window.extend([[0.0]*len(self._utterance_scores)]*30)
+        self.score_window.extend([[0.0]*len(self._utterance_scores)]*100)
 
     def _met_enter_cond(self):
         """ met condition to enter/keep utterance state """
         if self._utterance_blocks == 0:     # not in utterance state, need to met enter condition
             lring = list(self.label_ring)
-            if not lring[-1] == IS_KW:
+            if not self._is_kw(lring[-1]):
                 return False
-            else:   # IS_KW
+            else:   # is kw
                 if not self.silence_off:
                     head = lring[-1 - self._head_threshold : -1]
                     if len(head) > 0 and not all(v==SILENCE for v in head):
@@ -168,8 +184,9 @@ class TFLiteKWS(object):
         return True
 
     def _met_end_cond(self):
-        """ met utterance end condition """
+        """ met utterance end condition, return (is_end, end_status) """
         lring = list(self.label_ring)
+        # no kw after a certain time
         if not self.silence_off:
             _cond = lambda x: x == SILENCE  # kw in sentence not accepted
         else:
@@ -179,10 +196,9 @@ class TFLiteKWS(object):
 
     def _any_kw_triggered(self, scores):
         #TODO: multiple kw hits in one utterance
-        label = self.labels[np.argmax(scores)]
-        ilabel = label if label in [SILENCE, NOT_KW] else IS_KW  # all kw -> IS_KW
+        ilabel = np.argmax(scores)
+        label = self.labels[ilabel]
         self.label_ring.append(ilabel)
-        lring = list(self.label_ring)
         if self.score_strategy == 'smoothed_confidence':
             score = self._confidence_score(scores)
             self.logger.log(VERBOSE, "{}: {:.2f}".format(label, score))
@@ -191,58 +207,58 @@ class TFLiteKWS(object):
             self.logger.log(VERBOSE, "%s\tlabel=%s\t%s\ttot=%s",
                 '|'.join(map(lambda s: '{:6.2f}'.format(s), scores)),
                 label, self._utterance_scores, self._utterance_blocks)
+        
+        info = {'label': label, 'raw_score': max(scores)}
 
         if not self._met_enter_cond():
-            return None
+            return None, info
 
         # below only run in utterance state
         self._utterance_blocks += 1
+        info['utblk'] = self._utterance_blocks
         kw = None
 
         # label is kw, record score
-        if lring[-1] == IS_KW:
-            if self.score_strategy == 'hit_ratio' and score > self.hit_threshold:
-                self._utterance_scores[label] += 1
+        if self._is_kw(label):
+            # calculate score
+            if self.score_strategy == 'hit_ratio':
+                if score > self.hit_threshold:
+                    self._utterance_hits[label] += 1
+                nmin = self.min_kw_ms // self.block_ms
+                self._utterance_scores[label] = self._utterance_hits[label] / max(nmin, self._last_kw_ms() // self.block_ms)
             if self.score_strategy == 'smoothed_confidence':
                 self._utterance_scores[label] = score   # update to latest confidence
 
-        # early kw trigger (to support multiple kw in one utterance)
-        if self.score_strategy == 'smoothed_confidence' and lring[-1] == IS_KW and score > self.score_threshold:
-            if label not in self._already_triggered:
-                self.logger.debug("Early trigger of kw: %s", label)
-                self._already_triggered.append(label)
+            calc_score = self._utterance_scores[label]
+            kw_ms = self._last_kw_ms()
+            info['score'] = calc_score
+            info['kw_ms'] = kw_ms
+
+            # kw trigger before utterance end
+            if calc_score > self.score_threshold:
+                if kw_ms > self.min_kw_ms:
+                    if label not in self._already_triggered:
+                        self.logger.debug("Early trigger of kw: %s, dur: %s, score: %s", label, kw_ms, calc_score)
+                        self._already_triggered.append(label)
+        
+                        if self.immediate_trigger and len(self._already_triggered) == self.max_kw_cnt:
+                            kw = self._already_triggered
+                            self.logger.debug("[!] Return keywords before utterance end: %s", kw)
+                            return kw, info
 
         # end of utterance
         if self._met_end_cond():
-            utter_blocks = self._utterance_blocks - self._tail_threshold
-            utterance_ms = utter_blocks * self.block_ms
-            kwranks = self._utterance_scores
-            kw = max(kwranks, key=kwranks.get)
-            if utterance_ms < self.min_kw_ms:
-                self.logger.debug("End of utterance: %s, duration: %s ms, too short!", kw, utterance_ms)
-                self._reset_states()
-                return None
-            
-            if self.score_strategy == 'hit_ratio':
-                hit_ratio = kwranks[kw] / utter_blocks
-                self.logger.debug("End of utterance: %s, duration: %s ms, hit_ratio: %.2f", kw, utterance_ms, hit_ratio)
-                if not hit_ratio > self.score_threshold:  # hard code this, only leave sensitivity as the hyperparameter
-                    kw = None   # low hit ratio, discard it
-                    
-            if self.score_strategy == 'smoothed_confidence':
-                confidence = kwranks[kw]
-                self.logger.debug("End of utterance: %s, duration: %s ms, confidence: %.2f", kw, utterance_ms, confidence)
-                if len(self._already_triggered) == 1:
-                    kw = self._already_triggered[0]
-                elif len(self._already_triggered) > 1:
-                    raise NotImplementedError("multiple kw in one utterance not implemented yet")
-                else:
-                    kw = None   # end after silence tail, indicating low confidence, discard it
+            utter_ms = self._utterance_blocks * self.block_ms - self.tailroom_ms
+            if len(self._already_triggered) == 0 or self.immediate_trigger:
+                kw = None
+            else:
+                kw = self._already_triggered
+            self.logger.debug("End of utterance: %s, dur: %s, scores: %s", kw, utter_ms, self._utterance_scores)
 
             self._reset_states()
 
         if kw:
-            self.logger.info('[!] Hit keyword: "%s"', kw)
+            self.logger.info('[!] Return keywords after utterance end: "%s"', kw)
 
-        return kw
+        return kw, info
 

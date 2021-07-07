@@ -43,18 +43,26 @@ parser.add_argument(
     '-b', '--block-len-ms', type=int, default=20,
     help='input block (window stride) length (ms)')
 parser.add_argument(
-    '-s', '--score-strategy', choices=['smoothed_confidence', 'hit_ratio'], default='smoothed_confidence',
-    help='score strategy, choose between "smoothed_confidence" (default) or "hit_ratio"'),
+    '-s', '--score-strategy', choices=['smoothed_confidence', 'hit_ratio'], default='hit_ratio',
+    help='score strategy, choose between "smoothed_confidence" or "hit_ratio" (default)'),
 parser.add_argument(
     '-t', '--threshold', type=float,
-    help='score threshold, if not specified, this is automatically determined by strategy and softmax options'
-)
+    help='score threshold, if not specified, this is automatically determined by strategy and softmax options')
 parser.add_argument(
-    '--no-softmax', action='store_true',
+    '--hit-threshold', type=float, default=7,
+    help='hit threshold')
+parser.add_argument(
+    '--add-softmax', action='store_true',
     help='do not add softmax layer to output')
 parser.add_argument(
     '--silence-on', action='store_true',
     help='turn on silence detection')
+parser.add_argument(
+    '--delay-trigger', action='store_true',
+    help='only trigger after uttrance end')
+parser.add_argument(
+    '--max-kw', type=int, default=1,
+    help='max number of kw in one utterance')
 parser.add_argument(
     '--measure', action='store_true',
     help='measure and report processing time')
@@ -76,15 +84,16 @@ if args.verbose > 0:
 
 if not args.threshold:
     if args.score_strategy == 'hit_ratio':
-        threshold = 0.99
+        threshold = 0.01
     else:
         threshold = 0.8
 else:
     threshold = args.threshold
 
 
-gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'], add_softmax=not args.no_softmax, silence_off=not args.silence_on,
-    score_strategy=args.score_strategy, score_threshold=threshold)
+gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'], add_softmax=args.add_softmax, silence_off=not args.silence_on,
+    score_strategy=args.score_strategy, score_threshold=threshold, hit_threshold=args.hit_threshold, 
+    immediate_trigger=not args.delay_trigger, max_kw_cnt=args.max_kw)
 
 t_ring = collections.deque(maxlen=128)
 
