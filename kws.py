@@ -211,12 +211,12 @@ class TFLiteKWS(object):
         info = {'label': label, 'raw_score': max(scores)}
 
         if not self._met_enter_cond():
-            return None, info
+            return [], info
 
         # below only run in utterance state
         self._utterance_blocks += 1
         info['utblk'] = self._utterance_blocks
-        kw = None
+        kw = []
 
         # label is kw, record score
         if self._is_kw(label):
@@ -250,7 +250,7 @@ class TFLiteKWS(object):
         if self._met_end_cond():
             utter_ms = self._utterance_blocks * self.block_ms - self.tailroom_ms
             if len(self._already_triggered) == 0 or self.immediate_trigger:
-                kw = None
+                kw = []
             else:
                 kw = self._already_triggered
             self.logger.debug("End of utterance: %s, dur: %s, scores: %s", kw, utter_ms, self._utterance_scores)
