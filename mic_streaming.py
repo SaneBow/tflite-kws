@@ -31,6 +31,9 @@ parser.add_argument(
     '-m', '--model', type=str, required=True,
     help='tflite model')
 parser.add_argument(
+    '-n', '--num-keywords', type=int, default=1,
+    help='number of keywords (default 1)')
+parser.add_argument(
     '-i', '--input-device', type=int_or_str,
     help='input device (numeric ID or substring)')
 parser.add_argument(
@@ -46,11 +49,14 @@ parser.add_argument(
     '-s', '--score-strategy', choices=['smoothed_confidence', 'hit_ratio'], default='hit_ratio',
     help='score strategy, choose between "smoothed_confidence" or "hit_ratio" (default)'),
 parser.add_argument(
-    '-t', '--threshold', type=float,
+    '--score-threshold', type=float,
     help='score threshold, if not specified, this is automatically determined by strategy and softmax options')
 parser.add_argument(
     '--hit-threshold', type=float, default=7,
     help='hit threshold')
+parser.add_argument(
+    '--tailroom-ms', type=int, default=100,
+    help='tail room in ms')
 parser.add_argument(
     '--add-softmax', action='store_true',
     help='do not add softmax layer to output')
@@ -82,18 +88,18 @@ if args.verbose > 0:
     if args.verbose == 3:
         logging.getLogger().setLevel(VERBOSE)
 
-if not args.threshold:
+if not args.score_threshold:
     if args.score_strategy == 'hit_ratio':
         threshold = 0.01
     else:
         threshold = 0.8
 else:
-    threshold = args.threshold
+    threshold = args.score_threshold
 
-
-gkws = TFLiteKWS(args.model, [SILENCE, NOT_KW, 'keyword'], add_softmax=args.add_softmax, silence_off=not args.silence_on,
+labels = [SILENCE, NOT_KW] + ['kw%s'%(i+1) for i in range(args.num_keywords)]
+gkws = TFLiteKWS(args.model, labels, add_softmax=args.add_softmax, silence_off=not args.silence_on,
     score_strategy=args.score_strategy, score_threshold=threshold, hit_threshold=args.hit_threshold, 
-    immediate_trigger=not args.delay_trigger, max_kw_cnt=args.max_kw)
+    tailroom_ms=args.tailroom_ms, immediate_trigger=not args.delay_trigger, max_kw_cnt=args.max_kw)
 
 t_ring = collections.deque(maxlen=128)
 
@@ -107,7 +113,7 @@ def callback(indata, frames, buf_time, status):
     if args.channel is not None:
         indata = indata[:, [args.channel]]
 
-    kw, info = gkws.process(indata)
+    kw = gkws.process(indata)
     if len(kw) > 0:
         logging.info("API returned: %s", kw)
 

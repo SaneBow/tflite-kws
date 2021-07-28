@@ -26,7 +26,7 @@ NOT_KW = 1
 class TFLiteKWS(object):
     def __init__(self, model_path, labels, score_strategy='hit_ratio', add_softmax=False, 
         score_threshold=0.01, hit_threshold=7, tailroom_ms=100, min_kw_ms=100, block_ms=20, 
-        silence_off=True, headroom_ms=40, immediate_trigger=True, max_kw_cnt=1):
+        lookahead_ms=0, silence_off=True, immediate_trigger=True, max_kw_cnt=1):
         """
         TensorFlow Lite KWS model processor class
 
@@ -41,8 +41,8 @@ class TFLiteKWS(object):
         :param tailroom_ms: utterance end after how long of silence (default 100 ms)
         :param min_kw_ms: minimum kw duration (default 100 ms)
         :param block_ms: block duration (default 20 ms), must match the model
+        :param lookahead_ms: silence lookahead window to prevent kw in sentence, 0 to turn off
         :param silence_off: treat SILENCE as NOT_KW, turn silence detection off
-        :param headroom_ms: required silence before start of kw (default 40 ms), only effective when SILENCE label presents and silence_off=False
         :param immediate_trigger: trigger immediately once score reach threshold, don't wait for utterance end
         :param max_kw_cnt: max keyword in one utterance
         """
@@ -54,7 +54,6 @@ class TFLiteKWS(object):
         self.add_softmax = add_softmax
         self.score_threshold = score_threshold
         self.hit_threshold = hit_threshold
-        self.headroom_ms = headroom_ms
         assert tailroom_ms > 2 * block_ms, "tailroom cannot be too small"
         self.tailroom_ms = tailroom_ms
         self.min_kw_ms = min_kw_ms
@@ -64,13 +63,13 @@ class TFLiteKWS(object):
         self.silence_off = silence_off
         self.immediate_trigger = immediate_trigger
         self.max_kw_cnt = max_kw_cnt
+        self.lookahead = int(lookahead_ms / block_ms)
 
         self._utterance_blocks = 0  # total of blocks in an utterance
         keywords = [kw for kw in self.labels if kw not in [SILENCE, NOT_KW]]
         self._utterance_scores = {k:0 for k in keywords} 
         self._utterance_hits = {k:0 for k in keywords}
         self._tail_threshold = int(tailroom_ms / self.block_ms)
-        self._head_threshold = int(headroom_ms / self.block_ms)
         self._already_triggered = []
 
         ring_len = int(4000 / block_ms)     # 4s of records
@@ -181,8 +180,8 @@ class TFLiteKWS(object):
                 return False
             else:   # is kw
                 if not self.silence_off:
-                    head = lring[-1 - self._head_threshold : -1]
-                    if len(head) > 0 and not all(v==SILENCE for v in head):
+                    head = lring[-1 - self.lookahead : -1]
+                    if len(head) > 0 and len([v for v in head if v==SILENCE]) / self.lookahead < 0.5:
                         return False     # ignore kw prefixed by !kw if haven't enter utterance state
         # can enter just stays in utterance state
         return True
@@ -253,7 +252,8 @@ class TFLiteKWS(object):
         # end of utterance
         if self._met_end_cond():
             utter_ms = self._utterance_blocks * self.block_ms - self.tailroom_ms
-            if len(self._already_triggered) == 0 or self.immediate_trigger:
+            if len(self._already_triggered) == 0 or \
+                (self.immediate_trigger and len(self._already_triggered) == self.max_kw_cnt):
                 kw = []
             else:
                 kw = self._already_triggered
