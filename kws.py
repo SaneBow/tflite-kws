@@ -92,12 +92,13 @@ class TFLiteKWS(object):
         for s in range(len(self.input_details)):
             self.input_states.append(np.zeros(self.input_details[s]['shape'], dtype=np.float32))
 
-    def process(self, pcm, raw=False):
+    def process(self, pcm, raw=False, dump_fp=None):
         """
         Process an audio block
 
         :param pcm: input audio block data
         :param raw: is input data in raw format? (default to False for numpy array)
+        :param dump_fp: dump raw scores to a file
         :returns: keword string when hit or None when not hit
         """
         if raw:
@@ -126,7 +127,10 @@ class TFLiteKWS(object):
         for s in range(1, len(self.input_details)):
             self.input_states[s] = self.interpreter.get_tensor(self.output_details[s]['index'])
 
-        kw = self._any_kw_triggered(scores)
+        kw, info = self._any_kw_triggered(scores)
+
+        if dump_fp:
+            dump_fp.write(', '.join([str(x) for x in info['raw_score']]) + '\n')
 
         return kw
 
@@ -208,7 +212,7 @@ class TFLiteKWS(object):
                 '|'.join(map(lambda s: '{:6.2f}'.format(s), scores)),
                 label, self._utterance_scores, self._utterance_blocks)
         
-        info = {'label': label, 'raw_score': max(scores)}
+        info = {'label': label, 'raw_score': scores}
 
         if not self._met_enter_cond():
             return [], info
